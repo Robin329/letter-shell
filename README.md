@@ -1,8 +1,8 @@
 # letter shell 3.x
 
-![version](https://img.shields.io/badge/version-3.2.0-brightgreen.svg)
+![version](https://img.shields.io/badge/version-3.2.4-brightgreen.svg)
 ![standard](https://img.shields.io/badge/standard-c99-brightgreen.svg)
-![build](https://img.shields.io/badge/build-2023.04.15-brightgreen.svg)
+![build](https://img.shields.io/badge/build-2024.07.31-brightgreen.svg)
 ![license](https://img.shields.io/badge/license-MIT-brightgreen.svg)
 
 一个功能强大的嵌入式shell
@@ -27,6 +27,7 @@
   - [代理函数和代理参数解析](#代理函数和代理参数解析)
   - [函数签名](#函数签名)
     - [自定义类型解析](#自定义类型解析)
+    - [数组参数](#数组参数)
   - [权限系统说明](#权限系统说明)
   - [锁说明](#锁说明)
   - [伴生对象](#伴生对象)
@@ -181,6 +182,7 @@
     | SHELL_DEFAULT_USER_PASSWORD | 默认用户密码                   |
     | SHELL_LOCK_TIMEOUT          | shell自动锁定超时              |
     | SHELL_USING_FUNC_SIGNATURE  | 使用函数签名                   |
+    | SHELL_SUPPORT_ARRAY_PARAM   | 支持数组参数                   |
 
 ## 使用方式
 
@@ -193,7 +195,7 @@ letter shell 3.x同时支持两种形式的函数定义方式，形如main函数
 使用此方式，一个函数定义的例子如下：
 
 ```C
-int func(int argc, char *agrv[])
+int func(int argc, char *argv[])
 {
     printf("%dparameter(s)\r\n", argc);
     for (char i = 1; i < argc; i++)
@@ -500,12 +502,14 @@ letter shell 3.2.x 之后，引入了函数签名的概念，以便于参数自�
 
 基本类型的参数签名定义如下:
 
-| 类型                 | 签名 |
-| -------------------- | ---- |
-| char(字符)           | c    |
-| int/short/char(数字) | i    |
-| char * (字符串)      | s    |
-| pointer              | p    |
+| 类型            | 签名 |
+| --------------- | ---- |
+| char(字符)      | c    |
+| char(数字)      | q    |
+| short(数字)     | h    |
+| int(数字)       | i    |
+| char * (字符串) | s    |
+| pointer         | p    |
 
 声明命令时，在最后添加一个参数 `.data.cmd.signature = "isc"` 即可，比如：
 
@@ -566,6 +570,48 @@ SHELL_EXPORT_PARAM_PARSER(0, LTestStruct;, testStructParser, testStructClener);
 解析器函数接收两个参数，第一个参数是输入的字符串，也就是命令行输入的参数，第二个参数是解析后的参数，解析成功后，需要将解析后的参数赋值给第二个参数，解析成功返回 0，解析失败返回 -1
 
 清理函数接收一个参数，就是解析器函数解析得到的结果
+
+### 数组参数
+
+letter shell 3.2.2 之后，基于函数签名，我们支持了对数组参数的直接解析，使用时，需要打开宏 `SHELL_SUPPORT_ARRAY_PARAM`, 并且配置好 `SHELL_MALLOC` 和 `SHELL_FREE`
+
+数组的参数签名，只需要在常规参数签名前加上 `[`, 比如，对于 `int` 类型的数组，他的签名为 `[i`
+
+命令行调用时，数组参数使用 `[]` 包裹，每个元素之间用 `,` 分隔，比如 `func [1,2,3,4]`
+
+```c
+int shellArrayTest(int a, int *b, TestStruct **datas)
+{
+    int i;
+    printf("a = %d, b = %p, datas = %p\r\n", a, b, datas);
+    for (i = 0; i < shellGetArrayParamSize(b); i++)
+    {
+        printf("b[%d] = %d\r\n", i, b[i]);
+    }
+    for (i = 0; i < shellGetArrayParamSize(datas); i++)
+    {
+        printf("datas[%d]->a = %d, datas[%d]->b = %s\r\n", i, datas[i]->a, i, datas[i]->b);
+    }
+    return 0;
+}
+SHELL_EXPORT_CMD_SIGN(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_FUNC),
+arrayTest, shellArrayTest, test array param parser, i[i[LTestStruct;);
+```
+
+命令执行如下
+
+```sh
+letter:/workspaces/letter-shell/demo/x86-gcc$ arrayTest 12 [65, 89, 45] ["100 hello", "56 world"]
+a = 12, b = 0x1d2db24, datas = 0x1d2db44
+b[0] = 65
+b[1] = 89
+b[2] = 45
+datas[0]->a = 100, datas[0]->b = hello
+datas[1]->a = 56, datas[1]->b = world
+Return: 0, 0x00000000
+```
+
+注意，使用数组参数时，`char`，`short`，`int` 不可以共用 `i` 的签名，需要分别使用 `q` (quarter), `h` (half)
 
 ## 权限系统说明
 
